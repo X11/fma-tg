@@ -53,7 +53,7 @@ func main() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	gocron.Every(1).Day().At("16:01").Do(broadcastToSubscribers, bot, db)
+	gocron.Every(1).Day().At("06:01").Do(broadcastToSubscribers, bot, db)
 
 	go gocron.Start()
 
