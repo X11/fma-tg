@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/jasonlvhit/gocron"
@@ -62,15 +61,14 @@ func main() {
 
 func getJson(url string, target interface{}) error {
 
-	auth := []byte(os.Getenv("AUTH"))
+	auth := "?api_token=" + os.Getenv("AUTH")
 
 	client := &http.Client{}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url+auth, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString(auth)))
 
 	r, err := client.Do(req)
 	if err != nil {
