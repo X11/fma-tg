@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,6 +20,7 @@ type Episodes struct {
 }
 
 type Episode struct {
+	ID            int
 	Name          string
 	EpisodeNumber int
 	EpisodeSeason int
@@ -25,10 +28,12 @@ type Episode struct {
 }
 
 type Serie struct {
-	Name string
+	ID       int
+	Name     string
+	Overview string
 }
 
-const api_url string = "https://feedmyaddiction.xyz/api/v1/daily/"
+const api_url string = "https://feedmyaddiction.xyz/api/v1/"
 
 func main() {
 
@@ -37,7 +42,12 @@ func main() {
 		log.Panic(err)
 	}
 
-	db, err := sql.Open("sqlite3", "registry.db")
+	path := "registry.db"
+	if os.Getenv("BOT_ENV") == "production" {
+		path = "/data/registry.db"
+	}
+
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -97,7 +107,7 @@ func broadcastToSubscribers(bot *tgbotapi.BotAPI, db *sql.DB) {
 		}
 		log.Printf("Broadcasting to %d", channel)
 
-		url := fmt.Sprintf("%s%s", api_url, user)
+		url := fmt.Sprintf("%sdaily/%s", api_url, user)
 		data := Episodes{}
 		err = getJson(url, &data)
 		if err != nil {
@@ -131,41 +141,108 @@ func getUpdates(bot *tgbotapi.BotAPI, db *sql.DB) {
 	}
 
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		cmd := update.Message.Command()
-		channel := update.Message.Chat.ID
-
-		switch cmd {
-		case "today":
-			data := Episodes{}
-			err = getJson(api_url, &data)
-			if err != nil {
-				log.Panic(err)
-			}
-			text := "Airing today:\n"
-			for _, episode := range data.Episodes {
-				text += fmt.Sprintf("- S%02dE%02d %s\n", episode.EpisodeSeason, episode.EpisodeNumber, episode.Serie.Name)
-			}
-			msg := tgbotapi.NewMessage(channel, text)
-			bot.Send(msg)
-		case "sub":
-			args := update.Message.CommandArguments()
-			log.Printf("[%d] wants to subscribe on %s", channel, args)
-			unsubscribe(db, channel)
-			subscribe(db, channel, args)
-			bot.Send(tgbotapi.NewMessage(channel, fmt.Sprintf("You have subscribed on the track list of %s \nThis channel will now receive daily updates", args)))
-		case "unsub":
-			log.Printf("[%d] wants to unsubscribe", update.Message.Chat.ID)
-			unsubscribe(db, update.Message.Chat.ID)
-			bot.Send(tgbotapi.NewMessage(channel, "This channel will no longer receive any updates"))
-		default:
-			log.Printf("No command")
-		}
-
+		handleMessage(bot, db, &update)
+		handleCallbackQuery(bot, db, &update)
 	}
+}
+
+func handleCallbackQuery(bot *tgbotapi.BotAPI, db *sql.DB, update *tgbotapi.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	parts := strings.Split(update.CallbackQuery.Data, "=")
+	switch parts[0] {
+	case "serie":
+		bot.AnswerCallbackQuery(tgbotapi.NewCallback(update.CallbackQuery.ID, "Fetching information"))
+
+		data := Serie{}
+		err := getJson(api_url+"serie/"+parts[1], &data)
+		if err != nil {
+			log.Printf("Not able to get serie data, something went wrong")
+		}
+		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, data.Name+"\n\n"+data.Overview)
+		bot.Send(msg)
+	}
+}
+
+func handleMessage(bot *tgbotapi.BotAPI, db *sql.DB, update *tgbotapi.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	cmd := update.Message.Command()
+	channel := update.Message.Chat.ID
+
+	switch cmd {
+	case "today":
+		data := Episodes{}
+		err := getJson(api_url+"daily/", &data)
+		if err != nil {
+			log.Printf("Not able to get todays data, something went wrong")
+		}
+		text := "Airing today:\n"
+		for _, episode := range data.Episodes {
+			text += fmt.Sprintf("- S%02dE%02d %s\n", episode.EpisodeSeason, episode.EpisodeNumber, episode.Serie.Name)
+		}
+		msg := tgbotapi.NewMessage(channel, text)
+		returnMsg, err := bot.Send(msg)
+		if err != nil {
+			log.Printf("Something went wrong with sending chat message")
+		}
+
+		keyboard := tgbotapi.NewInlineKeyboardMarkup([]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonURL("View calender", "https://feedmyaddiction.xyz/calender/"),
+		})
+		keyboardMsg := tgbotapi.NewEditMessageReplyMarkup(channel, returnMsg.MessageID, keyboard)
+		bot.Send(keyboardMsg)
+
+	case "sub":
+		args := update.Message.CommandArguments()
+		log.Printf("[%d] wants to subscribe on %s", channel, args)
+		unsubscribe(db, channel)
+		subscribe(db, channel, args)
+		bot.Send(tgbotapi.NewMessage(channel, fmt.Sprintf("You have subscribed on the track list of %s \nThis channel will now receive daily updates", args)))
+
+	case "unsub":
+		log.Printf("[%d] wants to unsubscribe", update.Message.Chat.ID)
+		unsubscribe(db, update.Message.Chat.ID)
+		bot.Send(tgbotapi.NewMessage(channel, "This channel will no longer receive any updates"))
+
+	case "search":
+		args := update.Message.CommandArguments()
+
+		if len(args) < 5 {
+			msg := tgbotapi.NewMessage(channel, "Specify atleast 5 characters while searching")
+			bot.Send(msg)
+			return
+		}
+		data := Episodes{}
+		err := getJson(api_url+"search/"+args, &data)
+		if err != nil {
+			log.Printf("Not able to get todays data, something went wrong")
+		}
+
+		msg := tgbotapi.NewMessage(channel, "Search results")
+		returnMsg, err := bot.Send(msg)
+		if err != nil {
+			return
+		}
+
+		rows := [][]tgbotapi.InlineKeyboardButton{}
+		for _, episode := range data.Episodes {
+			rows = append(rows, []tgbotapi.InlineKeyboardButton{
+				tgbotapi.NewInlineKeyboardButtonData(episode.Serie.Name, "serie="+strconv.Itoa(episode.Serie.ID)),
+			})
+		}
+
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+		keyboardMsg := tgbotapi.NewEditMessageReplyMarkup(channel, returnMsg.MessageID, keyboard)
+		bot.Send(keyboardMsg)
+	default:
+		log.Printf("No command")
+	}
+
 }
 
 func subscribe(db *sql.DB, channel int64, commandArg string) {
