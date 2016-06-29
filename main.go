@@ -27,6 +27,10 @@ type Episode struct {
 	Serie         Serie
 }
 
+type SearchSeries struct {
+	Data []Serie
+}
+
 type Serie struct {
 	ID       int
 	Name     string
@@ -162,7 +166,13 @@ func handleCallbackQuery(bot *tgbotapi.BotAPI, db *sql.DB, update *tgbotapi.Upda
 			log.Printf("Not able to get serie data, something went wrong")
 		}
 		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, data.Name+"\n\n"+data.Overview)
-		bot.Send(msg)
+		returnMsg, err := bot.Send(msg)
+
+		keyboard := tgbotapi.NewInlineKeyboardMarkup([]tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonURL("View more", "https://feedmyaddiction.xyz/serie/"+strconv.Itoa(data.ID)),
+		})
+		keyboardMsg := tgbotapi.NewEditMessageReplyMarkup(update.CallbackQuery.Message.Chat.ID, returnMsg.MessageID, keyboard)
+		bot.Send(keyboardMsg)
 	}
 }
 
@@ -217,8 +227,8 @@ func handleMessage(bot *tgbotapi.BotAPI, db *sql.DB, update *tgbotapi.Update) {
 			bot.Send(msg)
 			return
 		}
-		data := Episodes{}
-		err := getJson(api_url+"search/"+args, &data)
+		data := SearchSeries{}
+		err := getJson(api_url+"search/serie/"+args, &data)
 		if err != nil {
 			log.Printf("Not able to get todays data, something went wrong")
 		}
@@ -230,9 +240,9 @@ func handleMessage(bot *tgbotapi.BotAPI, db *sql.DB, update *tgbotapi.Update) {
 		}
 
 		rows := [][]tgbotapi.InlineKeyboardButton{}
-		for _, episode := range data.Episodes {
+		for _, serie := range data.Data {
 			rows = append(rows, []tgbotapi.InlineKeyboardButton{
-				tgbotapi.NewInlineKeyboardButtonData(episode.Serie.Name, "serie="+strconv.Itoa(episode.Serie.ID)),
+				tgbotapi.NewInlineKeyboardButtonData(serie.Name, "serie="+strconv.Itoa(serie.ID)),
 			})
 		}
 
