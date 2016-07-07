@@ -8,11 +8,16 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/telegram-bot-api.v4"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	airedFormat = "2006-01-02"
 )
 
 type Episodes struct {
@@ -25,6 +30,7 @@ type Episode struct {
 	EpisodeNumber int
 	EpisodeSeason int
 	Serie         Serie
+	Aired         string
 }
 
 type SearchSeries struct {
@@ -249,6 +255,38 @@ func handleMessage(bot *tgbotapi.BotAPI, db *sql.DB, update *tgbotapi.Update) {
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
 		keyboardMsg := tgbotapi.NewEditMessageReplyMarkup(channel, returnMsg.MessageID, keyboard)
 		bot.Send(keyboardMsg)
+
+	case "untill":
+		args := update.Message.CommandArguments()
+
+		if len(args) < 5 {
+			msg := tgbotapi.NewMessage(channel, "Specify atleast 5 characters")
+			bot.Send(msg)
+			return
+		}
+
+		data := Episode{}
+		err := getJson(api_url+"search/discover/"+args, &data)
+		if err != nil {
+			msg := tgbotapi.NewMessage(channel, "Something went wrong")
+			bot.Send(msg)
+		}
+
+		aired, err := time.Parse(airedFormat, data.Aired)
+		if err != nil {
+			log.Printf(data.Aired)
+			return
+		}
+
+		delta := aired.Sub(time.Now())
+		days := math.Floor(delta.Hours() / 24)
+		if days < 0 {
+			msg := tgbotapi.NewMessage(channel, fmt.Sprintf("%s already aired", args))
+			bot.Send(msg)
+		} else {
+			msg := tgbotapi.NewMessage(channel, fmt.Sprintf("%s will air in %v days", args, days))
+			bot.Send(msg)
+		}
 	default:
 		log.Printf("No command")
 	}
