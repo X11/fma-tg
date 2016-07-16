@@ -8,7 +8,7 @@ Simple telegram bot for FMA writen in GOlang.
 * Get days untill an episode airs.
 
 # Commands
-* /sub <email>
+* /sub \<email\>
 * /unsub
-* /search <serie name>
-* /untill <serie name> s<season number>e<episode number>
+* /search \<serie\>
+* /untill \<serie\> s\<seasonNumber\>e\<episodeNumber\>
